@@ -5,20 +5,43 @@
 
 #include "Components/InputComponent.h"
 #include "Engine/World.h"
+#include "DrawDebugHelpers.h"
+#include "Net/UnrealNetwork.h"
 
 // Sets default values
 ACarPawn::ACarPawn()
 {
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-
+	bReplicates = true;
 }
 
 // Called when the game starts or when spawned
 void ACarPawn::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
+	if (HasAuthority())
+	{
+		NetUpdateFrequency = 1;
+	}
+}
+
+FString GetEnumText(ENetRole NetRole)
+{
+	switch (NetRole)
+	{
+	case ROLE_None:
+		return TEXT("None");
+	case ROLE_SimulatedProxy:
+		return TEXT("SimulatedProxy");
+	case ROLE_AutonomousProxy:
+		return TEXT("AutonomousProxy");
+	case ROLE_Authority:
+		return TEXT("Authority");
+	default:
+		return TEXT("ERROR");
+	}
 }
 
 // Called every frame
@@ -37,6 +60,13 @@ void ACarPawn::Tick(float DeltaTime)
 
 	ApplyRotation(DeltaTime);
 	UpdateLocationFromVelocity(DeltaTime);
+
+	if (HasAuthority())
+	{
+		ReplicatedTransform = GetActorTransform();
+	}
+
+	DrawDebugString(GetWorld(), FVector(0,0, 100), GetEnumText(GetLocalRole()), this, FColor::White, DeltaTime);
 }
 
 void ACarPawn::ApplyRotation(float DeltaTime)
@@ -83,12 +113,48 @@ FVector ACarPawn::GetRollingResistance()
 	return -Velocity.GetSafeNormal() * RollingResistanceCoefficient * NormalForce;
 }
 
+void ACarPawn::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ACarPawn, ReplicatedTransform);
+	DOREPLIFETIME(ACarPawn, Velocity);
+	DOREPLIFETIME(ACarPawn, Throttle);
+	DOREPLIFETIME(ACarPawn, SteeringThrow);
+}
+
 void ACarPawn::MoveForward(float Value)
 {
 	Throttle = Value;
+	Server_MoveForward(Value);
 }
 
 void ACarPawn::MoveRight(float Value)
 {
 	SteeringThrow = Value;
+	Server_MoveRight(Value);
+}
+
+void ACarPawn::Server_MoveForward_Implementation(float Value)
+{
+	Throttle = Value;
+}
+
+bool ACarPawn::Server_MoveForward_Validate(float Value)
+{
+	return FMath::Abs(Value) <= 1;
+}
+
+void ACarPawn::Server_MoveRight_Implementation(float Value)
+{
+	SteeringThrow = Value;
+}
+
+bool ACarPawn::Server_MoveRight_Validate(float Value)
+{
+	return FMath::Abs(Value) <= 1;
+}
+
+void ACarPawn::OnRep_ReplicatedTransform()
+{
+	SetActorTransform(ReplicatedTransform);
 }

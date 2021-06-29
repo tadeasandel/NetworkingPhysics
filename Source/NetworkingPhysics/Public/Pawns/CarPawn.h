@@ -31,9 +31,16 @@ private:
 	UPROPERTY(EditAnywhere)
 	float Mass = 1000;
 
+	UPROPERTY(Replicated)
 	FVector Velocity;
 
+	UPROPERTY(ReplicatedUsing = OnRep_ReplicatedTransform)
+	FTransform ReplicatedTransform;
+
+	UPROPERTY(Replicated)
 	float Throttle;
+
+	UPROPERTY(Replicated)
 	float SteeringThrow;
 
 	UPROPERTY(EditAnywhere)
@@ -55,6 +62,15 @@ private:
 
 	void MoveForward(float Value);
 	void MoveRight(float Value);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_MoveForward(float Value);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_MoveRight(float Value);
+
+	UFUNCTION()
+	void OnRep_ReplicatedTransform();
 
 	void UpdateLocationFromVelocity(float DeltaTime);
 	void ApplyRotation(float DeltaTime);
