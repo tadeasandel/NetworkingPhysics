@@ -4,6 +4,7 @@
 #include "Pawns/CarPawn.h"
 
 #include "Components/InputComponent.h"
+#include "Engine/World.h"
 
 // Sets default values
 ACarPawn::ACarPawn()
@@ -27,6 +28,9 @@ void ACarPawn::Tick(float DeltaTime)
 
 	FVector Force = GetActorForwardVector() * MaxDrivingForce * Throttle;
 
+	Force += GetAirResistance();
+	Force += GetRollingResistance();
+
 	FVector Acceleration = Force / Mass;
 
 	Velocity = Velocity + Acceleration * DeltaTime;
@@ -37,8 +41,9 @@ void ACarPawn::Tick(float DeltaTime)
 
 void ACarPawn::ApplyRotation(float DeltaTime)
 {
-	float RotationAngle = MaxDegreesPerSecond * DeltaTime * SteeringThrow;
-	FQuat RotationDelta(GetActorUpVector(), FMath::DegreesToRadians(RotationAngle));
+	float DeltaLocation = FVector::DotProduct(GetActorForwardVector(), Velocity) * DeltaTime;
+	float RotationAngle = DeltaLocation / MinimumTurningRadius * SteeringThrow;
+	FQuat RotationDelta(GetActorUpVector(), RotationAngle);
 
 	Velocity = RotationDelta.RotateVector(Velocity);
 
@@ -64,6 +69,18 @@ void ACarPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 	PlayerInputComponent->BindAxis("MoveForward", this, &ACarPawn::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &ACarPawn::MoveRight);
+}
+
+FVector ACarPawn::GetAirResistance()
+{
+	return - Velocity.GetSafeNormal() * Velocity.SizeSquared() * DragCoefficient;
+}
+
+FVector ACarPawn::GetRollingResistance()
+{
+	float AccelerationDueToGravity = -GetWorld()->GetGravityZ() / 100;
+	float NormalForce = Mass * AccelerationDueToGravity;
+	return -Velocity.GetSafeNormal() * RollingResistanceCoefficient * NormalForce;
 }
 
 void ACarPawn::MoveForward(float Value)
