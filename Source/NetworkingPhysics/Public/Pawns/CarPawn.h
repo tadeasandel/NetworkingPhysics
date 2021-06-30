@@ -6,6 +6,39 @@
 #include "GameFramework/Pawn.h"
 #include "CarPawn.generated.h"
 
+USTRUCT()
+struct FCarMove
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY()
+	float Throttle;
+
+	UPROPERTY()
+	float SteeringThrow;
+
+	UPROPERTY()
+	float DeltaTime;
+
+	UPROPERTY()
+	float Time;
+};
+
+USTRUCT()
+struct FCarState
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY()
+	FTransform Transform;
+
+	UPROPERTY()
+	FVector Velocity;
+
+	UPROPERTY()
+	FCarMove LastMove;
+};
+
 UCLASS()
 class NETWORKINGPHYSICS_API ACarPawn : public APawn
 {
@@ -31,16 +64,15 @@ private:
 	UPROPERTY(EditAnywhere)
 	float Mass = 1000;
 
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_ServerState)
+	FCarState ServerState;
+
+	TArray<FCarMove> UnacknowledgedMoves;
+
+	UPROPERTY()
 	FVector Velocity;
 
-	UPROPERTY(ReplicatedUsing = OnRep_ReplicatedTransform)
-	FTransform ReplicatedTransform;
-
-	UPROPERTY(Replicated)
 	float Throttle;
-
-	UPROPERTY(Replicated)
 	float SteeringThrow;
 
 	UPROPERTY(EditAnywhere)
@@ -57,6 +89,11 @@ private:
 
 private:
 
+	void SimulateMove(const FCarMove& Move);
+
+	FCarMove CreateMove(float DeltaTime);
+	void ClearAcknowledgedMoves(FCarMove LastMove);
+
 	FVector GetAirResistance();
 	FVector GetRollingResistance();
 
@@ -64,14 +101,11 @@ private:
 	void MoveRight(float Value);
 
 	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_MoveForward(float Value);
-
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_MoveRight(float Value);
+	void Server_SendMove(FCarMove Move);
 
 	UFUNCTION()
-	void OnRep_ReplicatedTransform();
+	void OnRep_ServerState();
 
 	void UpdateLocationFromVelocity(float DeltaTime);
-	void ApplyRotation(float DeltaTime);
+	void ApplyRotation(float DeltaTime, float LocalSteeringThrow);
 };

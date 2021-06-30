@@ -49,30 +49,31 @@ void ACarPawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	FVector Force = GetActorForwardVector() * MaxDrivingForce * Throttle;
-
-	Force += GetAirResistance();
-	Force += GetRollingResistance();
-
-	FVector Acceleration = Force / Mass;
-
-	Velocity = Velocity + Acceleration * DeltaTime;
-
-	ApplyRotation(DeltaTime);
-	UpdateLocationFromVelocity(DeltaTime);
-
-	if (HasAuthority())
+	if (GetLocalRole() == ROLE_AutonomousProxy)
 	{
-		ReplicatedTransform = GetActorTransform();
+		FCarMove Move = CreateMove(DeltaTime);
+		SimulateMove(Move);
+		UnacknowledgedMoves.Add(Move);
+		Server_SendMove(Move);
+	}
+	if (GetLocalRole() == ROLE_Authority && IsLocallyControlled())
+	{
+		FCarMove Move = CreateMove(DeltaTime);
+		Server_SendMove(Move);
 	}
 
-	DrawDebugString(GetWorld(), FVector(0,0, 100), GetEnumText(GetLocalRole()), this, FColor::White, DeltaTime);
+	if (GetLocalRole() == ROLE_SimulatedProxy)
+	{
+		SimulateMove(ServerState.LastMove);
+	}
+
+	DrawDebugString(GetWorld(), FVector(0, 0, 100), GetEnumText(GetLocalRole()), this, FColor::White, DeltaTime);
 }
 
-void ACarPawn::ApplyRotation(float DeltaTime)
+void ACarPawn::ApplyRotation(float DeltaTime, float LocalSteeringThrow)
 {
 	float DeltaLocation = FVector::DotProduct(GetActorForwardVector(), Velocity) * DeltaTime;
-	float RotationAngle = DeltaLocation / MinimumTurningRadius * SteeringThrow;
+	float RotationAngle = DeltaLocation / MinimumTurningRadius * LocalSteeringThrow;
 	FQuat RotationDelta(GetActorUpVector(), RotationAngle);
 
 	Velocity = RotationDelta.RotateVector(Velocity);
@@ -101,9 +102,49 @@ void ACarPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	PlayerInputComponent->BindAxis("MoveRight", this, &ACarPawn::MoveRight);
 }
 
+void ACarPawn::SimulateMove(const FCarMove& Move)
+{
+	FVector Force = GetActorForwardVector() * MaxDrivingForce * Move.Throttle;
+
+	Force += GetAirResistance();
+	Force += GetRollingResistance();
+
+	FVector Acceleration = Force / Mass;
+
+	Velocity = Velocity + Acceleration * Move.DeltaTime;
+
+	ApplyRotation(Move.DeltaTime, Move.SteeringThrow);
+	UpdateLocationFromVelocity(Move.DeltaTime);
+}
+
+FCarMove ACarPawn::CreateMove(float DeltaTime)
+{
+	FCarMove Move;
+	Move.DeltaTime = DeltaTime;
+	Move.SteeringThrow = SteeringThrow;
+	Move.Throttle = Throttle;
+	Move.Time = GetWorld()->TimeSeconds;
+	return Move;
+}
+
+void ACarPawn::ClearAcknowledgedMoves(FCarMove LastMove)
+{
+	TArray<FCarMove> NewMoves;
+
+	for (const FCarMove& Move : UnacknowledgedMoves)
+	{
+		if (Move.Time > LastMove.Time)
+		{
+			NewMoves.Add(Move);
+		}
+	}
+
+	UnacknowledgedMoves = NewMoves;
+}
+
 FVector ACarPawn::GetAirResistance()
 {
-	return - Velocity.GetSafeNormal() * Velocity.SizeSquared() * DragCoefficient;
+	return -Velocity.GetSafeNormal() * Velocity.SizeSquared() * DragCoefficient;
 }
 
 FVector ACarPawn::GetRollingResistance()
@@ -116,45 +157,43 @@ FVector ACarPawn::GetRollingResistance()
 void ACarPawn::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(ACarPawn, ReplicatedTransform);
-	DOREPLIFETIME(ACarPawn, Velocity);
-	DOREPLIFETIME(ACarPawn, Throttle);
-	DOREPLIFETIME(ACarPawn, SteeringThrow);
+	DOREPLIFETIME(ACarPawn, ServerState);
 }
 
 void ACarPawn::MoveForward(float Value)
 {
 	Throttle = Value;
-	Server_MoveForward(Value);
 }
 
 void ACarPawn::MoveRight(float Value)
 {
 	SteeringThrow = Value;
-	Server_MoveRight(Value);
 }
 
-void ACarPawn::Server_MoveForward_Implementation(float Value)
+void ACarPawn::Server_SendMove_Implementation(FCarMove Move)
 {
-	Throttle = Value;
+	SimulateMove(Move);
+
+	ServerState.LastMove = Move;
+
+	ServerState.Transform = GetActorTransform();
+	ServerState.Velocity = Velocity;
 }
 
-bool ACarPawn::Server_MoveForward_Validate(float Value)
+bool ACarPawn::Server_SendMove_Validate(FCarMove Move)
 {
-	return FMath::Abs(Value) <= 1;
+	return true;
 }
 
-void ACarPawn::Server_MoveRight_Implementation(float Value)
+void ACarPawn::OnRep_ServerState()
 {
-	SteeringThrow = Value;
-}
+	SetActorTransform(ServerState.Transform);
+	Velocity = ServerState.Velocity;
 
-bool ACarPawn::Server_MoveRight_Validate(float Value)
-{
-	return FMath::Abs(Value) <= 1;
-}
+	ClearAcknowledgedMoves(ServerState.LastMove);
 
-void ACarPawn::OnRep_ReplicatedTransform()
-{
-	SetActorTransform(ReplicatedTransform);
+	for (const FCarMove& Move : UnacknowledgedMoves)
+	{
+		SimulateMove(Move);
+	}
 }
