@@ -21,6 +21,23 @@ struct FCarState
 	FCarMove LastMove;
 };
 
+struct FHermiteCubicSpline
+{
+	FVector StartLocation;
+	FVector StartDerivative;
+	FVector TargetLocation;
+	FVector TargetDerivative;
+
+	FVector InterpolateLocation(float LerpRatio) const
+	{
+		return FMath::CubicInterp(StartLocation, StartDerivative, TargetLocation, TargetDerivative, LerpRatio);
+	}
+	FVector InterpolateDerivative(float LerpRatio) const
+	{
+		return FMath::CubicInterpDerivative(StartLocation, StartDerivative, TargetLocation, TargetDerivative, LerpRatio);
+	}
+};
+
 UCLASS( Blueprintable, BlueprintType )
 class NETWORKINGPHYSICS_API UCarMovementReplicationComponent : public UActorComponent
 {
@@ -51,10 +68,34 @@ private:
 	UFUNCTION()
 	void OnRep_ServerState();
 
+	void SimulatedProxy_OnRepServerState();
+	void AutonomousProxy_OnRepServerState();
+
+	void ClientTick(float DeltaTime);
+
+	FHermiteCubicSpline CreateSpline();
 	void UpdateServerState(const FCarMove& Move);
 
-private: 
+	void InterpolateLocation(const FHermiteCubicSpline &Spline, float LerpRatio);
+	void InterpolateVelocity(const FHermiteCubicSpline &Spline, float LerpRatio);
+	void InterpolateRotation(float LerpRatio);
+	float VelocityToDerivative();
+
+	UFUNCTION(BlueprintCallable)
+	void SetMeshOffsetRoot(USceneComponent* Root) { MeshOffsetRoot = Root; }
+
+private:
 
 	UPROPERTY()
 	UCarMovementComponent* MovementComponent;
+
+	UPROPERTY()
+	USceneComponent* MeshOffsetRoot;
+
+	float ClientTimeSinceUpdate;
+	float ClientTimeBetweenLastUpdates;
+	FTransform ClientStartTransform;
+	FVector ClientStartVelocity;
+
+	float ClientSimulatedTime;
 };

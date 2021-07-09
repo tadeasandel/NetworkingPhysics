@@ -30,10 +30,12 @@ private:
 	void MoveForward(float Value);
 	void MoveRight(float Value);
 
-	UPROPERTY(VisibleAnywhere)
+public:
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UCarMovementComponent* MovementComponent;
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UCarMovementReplicationComponent* MovementReplicationComponent;
 
 };

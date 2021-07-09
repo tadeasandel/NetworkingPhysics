@@ -20,10 +20,11 @@ ACarPawn::ACarPawn()
 void ACarPawn::BeginPlay()
 {
 	Super::BeginPlay();
+	SetReplicateMovement(false);
 
 	if (HasAuthority())
 	{
-		NetUpdateFrequency = 1;
+		NetUpdateFrequency = 1.0f;
 	}
 }
 
